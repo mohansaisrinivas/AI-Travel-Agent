@@ -1,0 +1,115 @@
+================================================================================
+                       AI-POWERED TRAVEL AGENT
+                           PROJECT REPORT
+================================================================================
+
+1. INTRODUCTION
+--------------------------------------------------------------------------------
+The AI-Powered Travel Agent is an intelligent travel planning application designed 
+to make the entire travel planning process simple, personalized, and convenient 
+for users.
+
+Normally, planning a trip requires visiting multiple websites to search for 
+transportation, hotels, rental vehicles, tourist attractions, prices, and 
+schedules. This project aims to bring all these activities together in a single 
+application using Artificial Intelligence and multiple specialized AI agents.
+
+The system will first understand the user's travel requirements and preferences. 
+Based on these inputs, the AI agents will work together to find suitable 
+transportation, accommodation, local travel options, and activities. Finally, 
+the system will generate one or more complete itineraries, allowing the user to 
+select the option that best suits their needs and budget.
+
+The main goal is to create a personalized virtual travel assistant that can help 
+the user from the beginning of the trip until the end.
+
+
+2. HOW THE SYSTEM WORKS
+--------------------------------------------------------------------------------
+The user first enters details such as:
+  • Starting location and destination
+  • Travel dates and duration
+  • Number of travellers
+  • Preferred transportation
+  • Budget
+  • Hotel requirements
+  • Tourist places or activities they are interested in
+  • Cab or rental vehicle requirements
+
+The AI uses this information to search for suitable options and generates 
+different travel plans. The user can compare them and select the most 
+convenient one. 
+
+
+3. MULTI-AGENT SYSTEM ARCHITECTURE (LangGraph)
+--------------------------------------------------------------------------------
+The project uses multiple AI agents, where each agent performs a specific task. 
+Using LangGraph allows the system to orchestrate these independent agents efficiently.
+
+3.1 Travel/Transportation Parent Agent
+This agent manages the complete transportation planning. It has four child agents:
+  • Train Agent: Finds suitable trains, timings, and prices.
+  • Bus Agent: Finds suitable buses and compares prices.
+  • Flight Agent: Searches flights based on price and travel time.
+  • Road Agent: Plans travel using cars or bikes and considers distance and 
+    travel time.
+
+3.2 Accommodation Agent
+This agent finds hotels, resorts, hostels, or homestays near the user's travel 
+locations based on:
+  • Price
+  • Location
+  • Ratings
+  • Facilities
+  • User preferences
+
+3.3 Local Vehicle Rental Agent
+This agent suggests cabs, taxis, auto-rickshaws, rental cars, or bikes for 
+travelling within the destination. It can also suggest a cab from the user's 
+home to the airport, railway station, or bus station. If the user wants to drive 
+themselves, this agent searches available rental cars or bikes based on:
+  • Vehicle type
+  • Budget
+  • Rental duration
+  • Location
+
+
+4. AI ITINERARY GENERATION
+--------------------------------------------------------------------------------
+After collecting all the information, the AI creates a complete day-wise itinerary.
+
+Example Flow:
+  • Day 1: Travel -> Hotel Check-in -> Local sightseeing
+  • Day 2: Tourist Place A -> Lunch -> Tourist Place B
+  • Day 3: Tourist Place C -> Shopping -> Return to Hotel
+
+The system can provide different plans such as:
+  1. Comfort Plan
+  2. Fast/Convenient Plan
+
+The user can select whichever plan they prefer.
+
+
+5. ALERTS AND DAILY PLANNER
+--------------------------------------------------------------------------------
+A major feature of the system is the notification and reminder system. The AI 
+can remind users about:
+  • Train/flight departure
+  • Hotel check-in
+  • Cab pickup
+  • Tourist places
+  • Daily activities
+  • Return journey
+
+A daily planner can also tell the user what places they should visit that day. 
+Notifications can be sent through Email or WhatsApp.
+
+
+6. WEB BROWSING AND PRICE COMPARISON
+--------------------------------------------------------------------------------
+Considering all the relevant factors, the system identifies the best possible 
+outcome for the user using authorized APIs. The child LLMs collect and analyze 
+data from different sources, after which the results are compared, filtered, 
+and ranked. Finally, after the price comparisons, the system presents the most 
+suitable options to the user, allowing them to choose the one that best meets 
+their needs.
