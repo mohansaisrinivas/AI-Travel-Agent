@@ -1,0 +1,15 @@
+# Ignore the file containing your API key (CRITICAL)
+.env
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore Virtual Environments (if you decide to use one later)
+venv/
+.venv/
+env/
+
+# Ignore Operating System clutter
+.DS_Store
+Thumbs.db
