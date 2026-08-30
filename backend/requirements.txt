@@ -1,5 +1,8 @@
 langchain
 langgraph
 langchain-google-genai
+langchain-core
+langchain-community
+langchain-tavily
 pydantic
 python-dotenv
