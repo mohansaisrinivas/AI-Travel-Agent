@@ -31,19 +31,13 @@ def run_cli_test():
         if user_input.lower() in ['quit', 'exit']:
             break
 
-        # Append the new user message to the running state
         current_state["messages"].append(user_input)
-
-        # Pass the ENTIRE running state into the graph so it has full memory
         result_state = app.invoke(current_state)
         
-        # Parse and print the final agent response
         last_msg = result_state["messages"][-1]
         agent_response = getattr(last_msg, 'content', str(last_msg))
         
         print(f"\nAgent: {agent_response}")
-        
-        # Update running state for the next loop
         current_state = result_state
 
 if __name__ == "__main__":
