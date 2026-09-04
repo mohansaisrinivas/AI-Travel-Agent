@@ -6,13 +6,9 @@ from state.trip_state import TripDetails, GraphState
 from prompts.agent_prompts import ORCHESTRATOR_PROMPT
 
 class OrchestratorDecision(BaseModel):
-    next_agent: str = Field(
-        description="Must be one of: 'Itinerary_Agent', 'Data_Gatherer', or 'Booking_Agent'"
-    )
+    next_agent: str = Field(description="Must be one of: 'Itinerary_Agent', 'Data_Gatherer', or 'Booking_Agent'")
     reasoning: str = Field(description="A brief explanation of why this agent was chosen.")
-    user_approved_itinerary: bool = Field(
-        description="Set to True ONLY if the user just said 'looks good', 'proceed', or approved the plan."
-    )
+    user_approved_itinerary: bool = Field(description="Set to True ONLY if the user just said 'looks good', 'proceed', or approved the plan.")
 
 def run_orchestrator(state: GraphState) -> dict:
     llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0)
@@ -22,9 +18,11 @@ def run_orchestrator(state: GraphState) -> dict:
     state_str = f"Trip Data: {current_trip_data}\nItinerary Drafted: {state['itinerary_drafted']}\nItinerary Approved: {state['itinerary_approved']}"
     
     formatted_prompt = ORCHESTRATOR_PROMPT.format(trip_state=state_str)
-    user_message = state["messages"][-1]
+    
+    last_msg = state["messages"][-1]
+    user_message = getattr(last_msg, 'content', str(last_msg))
 
-    print("🧠 Orchestrator is thinking...")
+    print("🧠 Main Orchestrator is thinking...")
     decision = structured_llm.invoke([
         SystemMessage(content=formatted_prompt),
         HumanMessage(content=user_message)
