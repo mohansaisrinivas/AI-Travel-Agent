@@ -124,15 +124,15 @@ BUDGET TIER CONSTRAINTS:
 EXECUTION PROTOCOL & STRICT RULES:
 1. Call `search_buses` for Outbound and Return routes. 
 2. Use Tavily to check operator reviews, punctuality, and hygiene if needed to make your final selection.
-3. The `search_buses` tool will return exact strings of available buses. You MUST NOT summarize, generalize, or invent generic advice (e.g. do not just say "Volvo 9600").
-4. You MUST explicitly name the specific Bus Operator (e.g., "Orange Tours", "IntrCity") and Bus Type that you selected from the tool's output.
-5. The tool has already used Google Maps to calculate the closest actual boarding point to the User's Requested Neighborhood ({boarding_area}). You MUST quote this exact commute distance and time.
+3. The `search_buses` tool will return exact strings of available buses. You MUST NOT summarize, generalize, or invent generic advice.
+4. You MUST explicitly name the specific Bus Operator (e.g., "Orange Tours") and Bus Type that you selected from the tool's output.
+5. You MUST explicitly state the EXACT NAME of the boarding point (e.g., "Ameerpet", "Kukatpally") exactly as it appears in the tool output, along with the exact cab commute time from {boarding_area}.
 6. You MUST include the exact Google Maps URL provided by the tool for the drop-off location.
 
 OUTPUT FORMAT:
 Present the complete round-trip plan clearly using the following structure:
 - Selected Operator Name & Bus Type for Outbound and Return legs.
-- Boarding Point details (MUST explicitly state the cab commute time and distance from {boarding_area} as provided by the tool).
-- Drop-off Point details (MUST include the exact Google Maps link provided by the tool).
+- Boarding Point details (MUST include the EXACT NAME of the boarding point AND the exact cab commute distance/time from {boarding_area}).
+- Drop-off Point details (MUST include the EXACT NAME of the drop-off point AND the exact Google Maps link provided by the tool).
 - Total estimated fare: You MUST multiply the exact per-person fare provided by the tool by {travelers} travelers and display the grand total prominently.
 """
