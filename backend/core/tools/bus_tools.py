@@ -10,31 +10,33 @@ from langchain_tavily import TavilySearch
 class BusConnectivityResult(BaseModel):
     origin_city: str
     destination_has_direct_bus: bool = Field(description="True if major interstate buses run directly to this destination.")
-    destination_drop_area: str = Field(description="The exact destination city/town or the nearest major bus junction if no direct route exists.")
-    last_mile_note: str = Field(description="If no direct bus, explain the road transit from the drop area to the final destination.")
+    destination_drop_area: str = Field(description="The exact major transit hub/city that should be used for this route.")
+    last_mile_note: str = Field(description="If no direct bus, explain the road transit to the final location.")
 
 def resolve_bus_route(origin: str, destination: str) -> BusConnectivityResult:
-    """Uses live web search to find the most accurate bus drop-off point and connectivity."""
-    print(f"   [Bus Tools] Searching web for real bus routes from {origin} to {destination}...")
+    """Uses live web search to find the most accurate bus drop-off/boarding point."""
+    print(f"   [Bus Tools] Searching web for real bus routes between {origin} and {destination}...")
     
     web_context = ""
     if os.getenv("TAVILY_API_KEY"):
         tavily = TavilySearch(max_results=2)
-        search_query = f"nearest major interstate bus stand or RedBus drop off point to {destination} from {origin}"
+        # Updated query to be bidirectional (checks both origin and destination)
+        search_query = f"major RedBus interstate bus terminal nearest to {origin} and nearest to {destination}"
         try:
             results = tavily.invoke(search_query)
             web_context = f"\nLIVE WEB RESEARCH RESULTS:\n{results}\n"
         except Exception as e:
-            print(f"   [Bus Tools] Web search failed, relying on LLM memory: {e}")
+            print(f"   [Bus Tools] Web search failed: {e}")
 
     llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0)
     structured_llm = llm.with_structured_output(BusConnectivityResult)
 
+    # Updated prompt to handle either a remote origin OR a remote destination
     prompt = (
         "You are an interstate bus routing expert. Use the provided web research to answer:\n"
-        "1. Do major long-distance buses go directly to the destination?\n"
-        "2. If the destination is remote (like Munnar or Ooty), identify the nearest major bus hub/junction based on the web research.\n"
-        "3. Provide last-mile connection details if dropped at a junction."
+        "1. Do major long-distance buses run directly between the origin and destination?\n"
+        "2. If either location is a remote town/beach (like Anjuna, Munnar), identify the nearest major interstate bus hub for that location.\n"
+        "3. Provide last-mile connection details."
     )
 
     return structured_llm.invoke([
@@ -49,7 +51,6 @@ def get_closest_boarding_point(user_origin: str, city: str, available_points: li
     if not google_api_key or not available_points:
         return {"name": available_points[0] if available_points else "Main Stand", "distance": "Unknown", "duration": "Unknown"}
 
-    # Format the origin and destinations for the API
     origin_str = f"{user_origin}, {city}"
     destinations_str = "|".join([f"{bp}, {city}" for bp in available_points])
     
@@ -59,8 +60,6 @@ def get_closest_boarding_point(user_origin: str, city: str, available_points: li
         response = requests.get(url).json()
         if response.get("status") == "OK":
             elements = response["rows"][0]["elements"]
-            
-            # Find the destination with the minimum travel time
             best_point_idx = 0
             min_duration = float('inf')
             
@@ -80,7 +79,6 @@ def get_closest_boarding_point(user_origin: str, city: str, available_points: li
     except Exception as e:
         print(f"   [Distance Matrix Error]: {e}")
         
-    # Fallback if API fails
     return {"name": available_points[0], "distance": "Unknown", "duration": "Unknown"}
 
 @tool
@@ -91,19 +89,24 @@ def search_buses(origin: str, destination: str, date: str, boarding_area: str, b
     if apify_token:
         try:
             from apify_client import ApifyClient
-            client = ApifyClient(apify_token)
             
-            # Since the LLM already formatted the date perfectly, we just pass it directly!
+            try:
+                formatted_date = datetime.strptime(date.strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
+            except ValueError:
+                formatted_date = date.strip()
+
+            print(f"   [Bus API] Searching live RedBus API: {origin} -> {destination} on {formatted_date}...")
+
+            client = ApifyClient(apify_token)
             run = client.actor("rl1987/redbus-api-scraper").call(
                 run_input={
                     "source": origin,
                     "destination": destination,
-                    "dateOfJourney": date.strip(),
+                    "dateOfJourney": formatted_date,
                     "maxItems": 10
                 }
             )
             
-            # Safely extract dataset ID
             if isinstance(run, dict):
                 dataset_id = run.get("defaultDatasetId")
             else:
@@ -112,24 +115,22 @@ def search_buses(origin: str, destination: str, date: str, boarding_area: str, b
             dataset = client.dataset(dataset_id).list_items().items
             
             if dataset:
+                print(f"   [Bus API] Success! Found {len(dataset)} real buses.")
                 formatted_buses = []
                 for b in dataset[:4]:
                     operator = b.get("operator")
                     fare = b.get("fares")
                     bus_type = b.get("busType")
                     
-                    # Extract all boarding points for this bus
                     board_points_raw = b.get("boardingPoints", [])
                     bp_names = [bp.get("bpName") for bp in board_points_raw[:5]]
                     
-                    # Google Maps Integration for Micro-Routing
                     if bp_names:
                         closest_bp = get_closest_boarding_point(boarding_area, origin, bp_names)
                         boarding_info = f"Board at {closest_bp['name']} ({closest_bp['distance']} / {closest_bp['duration']} cab ride from {boarding_area})"
                     else:
                         boarding_info = "Main City Hub"
 
-                    # Extract Drop Points
                     drop_points = b.get("droppingPoints", [])
                     if drop_points:
                         first_drop = drop_points[0]
@@ -145,10 +146,22 @@ def search_buses(origin: str, destination: str, date: str, boarding_area: str, b
                         f"{operator} ({bus_type}) | Fare: {fare} | {boarding_info} | Drop-off: {drop_name} (Link: {maps_link})"
                     )
                 return "\n".join(formatted_buses)
-        except Exception as e:
-            print(f"   [Bus API] Apify call failed ({e}). Using live route lookup.")
+            else:
+                # DYNAMIC SELF-CORRECTION: Reusing our own resolve_bus_route function!
+                print(f"   [Bus API] 0 buses found for {origin} -> {destination}. Invoking resolve_bus_route...")
+                resolution = resolve_bus_route(origin, destination)
+                suggested_hub = resolution.destination_drop_area
+                
+                return (
+                    f"0 buses found for '{origin}' to '{destination}'. "
+                    f"System Auto-Correction: The routing database suggests using '{suggested_hub}' as the transit hub. "
+                    f"Action Required: Call the search_buses tool again using '{suggested_hub}' in place of the failed location."
+                )
 
-    # Dynamic fallback populated with mock Google Maps distances
+        except Exception as e:
+            print(f"   [Bus API] Apify physically crashed ({e}). Falling back to mock data.")
+
+    print("   [Bus API] WARNING: Using mock fallback data.")
     return (
         f"Available Buses ({origin} -> {destination}) on {date}:\n"
         f"1. Orange Tours & Travels - AC Volvo | Fare: ₹1,800/person | Board at Kukatpally (4.8 km / 12 mins cab ride from {boarding_area}) | Drop-off: Panjim KTC Stand (Link: https://www.google.com/maps/search/?api=1&query=15.4989,73.8278) | Rating: 4.6/5\n"
