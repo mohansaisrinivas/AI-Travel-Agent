@@ -17,7 +17,7 @@ class TripDetails(BaseModel):
     needs_local_rental: Optional[bool] = Field(default=None, description="Does the user need a vehicle rental locally at the destination?")
     halts: List[str] = Field(default_factory=list, description="List of base cities/towns planned for the trip.")
 
-    # --- Halt-Aware Airport Routing (Hidden from User) ---
+    # --- Halt-Aware Airport Routing ---
     entry_halt: Optional[str] = Field(default=None, description="The first halt where the trip begins.")
     exit_halt: Optional[str] = Field(default=None, description="The final halt where the trip concludes.")
     origin_iata: Optional[str] = Field(default=None, description="Departure airport IATA code from origin city (e.g., HYD).")
@@ -29,6 +29,10 @@ class TripDetails(BaseModel):
     outbound_last_mile_note: Optional[str] = Field(default=None, description="Road distance/time from arrival airport to Halt 1.")
     return_last_mile_note: Optional[str] = Field(default=None, description="Road distance/time from Final Halt to return airport.")
     special_transport_notes: Optional[str] = Field(default=None, description="Specific user constraints like non-stop, baggage, pet travel, etc.")
+
+    # --- Bus Routing ---
+    origin_boarding_area: Optional[str] = Field(default=None, description="Exact neighborhood/area in origin city for bus boarding.")
+    destination_drop_area: Optional[str] = Field(default=None, description="Nearest bus terminus/junction to destination if no direct route exists.")
 
 class GraphState(TypedDict):
     messages: Annotated[List[str], operator.add]
