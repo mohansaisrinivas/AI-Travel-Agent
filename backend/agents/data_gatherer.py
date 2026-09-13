@@ -3,7 +3,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from state.trip_state import GraphState, TripDetails
 from prompts.agent_prompts import DATA_EXTRACTION_PROMPT, DATA_QUESTION_PROMPT
 
-# The fields we actually want to ask the user for (ignoring backend IATA codes)
+# The fields we actually want to ask the user for (ignoring backend fields)
 USER_FACING_FIELDS = [
     "origin_city", "start_date", "duration_days", "number_of_travelers", 
     "budget_tier", "transport_mode", "needs_airport_cab", "needs_local_rental"
@@ -42,9 +42,13 @@ def run_data_gatherer(state: GraphState) -> dict:
         setattr(updated_trip_data, key, val)
         print(f"   [Data Gatherer] Saved to memory -> {key}: {val}")
         
-    # ONLY check user-facing fields for missing data
     missing_fields = [k for k in USER_FACING_FIELDS if getattr(updated_trip_data, k) is None]
     
+    # NEW LOGIC: Ask for the specific boarding neighborhood if traveling by bus
+    if updated_trip_data.transport_mode and updated_trip_data.transport_mode.lower() == "bus":
+        if not updated_trip_data.origin_boarding_area:
+            missing_fields.append("origin_boarding_area (the specific neighborhood or landmark in your city where you want to board the bus)")
+            
     if not missing_fields:
         new_msg = "Perfect, I have all the details I need! Let's get this booked."
     else:
