@@ -92,11 +92,11 @@ def search_buses(origin: str, destination: str, date: str, boarding_area: str, b
         try:
             from apify_client import ApifyClient
             
-            # Fix: Convert YYYY-MM-DD to DD/MM/YYYY for the RedBus scraper
+            # FIX: The Apify Actor strictly requires YYYY-MM-DD
             try:
-                formatted_date = datetime.strptime(date.strip(), "%Y-%m-%d").strftime("%d/%m/%Y")
+                formatted_date = datetime.strptime(date.strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
             except ValueError:
-                formatted_date = date
+                formatted_date = date.strip()
 
             client = ApifyClient(apify_token)
             run = client.actor("rl1987/redbus-api-scraper").call(
