@@ -6,12 +6,10 @@ from agents.data_gatherer import run_data_gatherer
 from agents.itinerary_agent import run_itinerary_agent
 from agents.transport_orchestrator import run_transport_orchestrator
 from agents.flight_agent import run_flight_agent
+from agents.bus_agent import run_bus_agent  # <-- NEW IMPORT
 
 def train_agent_placeholder(state: GraphState) -> dict:
     return {"messages": ["🚆 Train Agent: Searching IRCTC express trains... (Module ready for integration)"]}
-
-def bus_agent_placeholder(state: GraphState) -> dict:
-    return {"messages": ["🚌 Bus Agent: Searching intercity premium bus operators... (Module ready for integration)"]}
 
 def route_next_step(state: GraphState) -> str:
     last_msg = state["messages"][-1]
@@ -46,7 +44,7 @@ def build_travel_graph():
     workflow.add_node("transport_orchestrator", run_transport_orchestrator)
     workflow.add_node("flight_agent", run_flight_agent)
     workflow.add_node("train_agent", train_agent_placeholder)
-    workflow.add_node("bus_agent", bus_agent_placeholder)
+    workflow.add_node("bus_agent", run_bus_agent)  # <-- NEW NODE
 
     workflow.set_entry_point("orchestrator")
 
