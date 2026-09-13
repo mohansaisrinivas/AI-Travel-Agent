@@ -91,19 +91,14 @@ def search_buses(origin: str, destination: str, date: str, boarding_area: str, b
     if apify_token:
         try:
             from apify_client import ApifyClient
-            
-            # FIX: The Apify Actor strictly requires YYYY-MM-DD
-            try:
-                formatted_date = datetime.strptime(date.strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
-            except ValueError:
-                formatted_date = date.strip()
-
             client = ApifyClient(apify_token)
+            
+            # Since the LLM already formatted the date perfectly, we just pass it directly!
             run = client.actor("rl1987/redbus-api-scraper").call(
                 run_input={
                     "source": origin,
                     "destination": destination,
-                    "dateOfJourney": formatted_date,
+                    "dateOfJourney": date.strip(),
                     "maxItems": 10
                 }
             )
