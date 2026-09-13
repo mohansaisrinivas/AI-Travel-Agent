@@ -7,3 +7,4 @@ langchain-tavily
 pydantic
 python-dotenv
 requests
+apify-client
