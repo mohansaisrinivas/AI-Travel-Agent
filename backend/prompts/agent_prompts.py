@@ -108,7 +108,7 @@ TRAVEL SCHEDULE & ROUTING:
 - Start Date (Outbound): {start_date}
 - Return Date (Inbound): {return_date}
 - Outbound Route: {origin_city} -> {drop_area} [Closest to Halt 1: {entry_halt}]
-- Boarding Area: {boarding_area}
+- User's Requested Boarding Neighborhood: {boarding_area}
 - Outbound Last-Mile: {outbound_last_mile}
 - Return Route: {drop_area} -> {origin_city}
 - Return Last-Mile: {return_last_mile}
@@ -117,16 +117,19 @@ TRAVEL SCHEDULE & ROUTING:
 - Special Preferences: {special_notes}
 
 BUDGET TIER CONSTRAINTS:
-1. AFFORDABLE: Lowest fare (Non-AC or basic seater). Minimum rating 2.5/5.
-2. STANDARD: Balanced cost & comfort (AC Sleeper or Semi-Sleeper). Minimum rating 3.5/5. Use Tavily to verify operator reliability.
-3. PREMIUM: Premium luxury buses (Volvo/Scania Multi-Axle AC Sleeper, like Orange Tours, IntrCity). Rating > 4.0/5. Prioritize hygiene, safety, and comfort.
+1. AFFORDABLE: Lowest fare. Minimum rating 2.5/5.
+2. STANDARD: Balanced cost & comfort. Minimum rating 3.5/5.
+3. PREMIUM: Premium luxury buses. Rating > 4.0/5.
 
-EXECUTION PROTOCOL:
-1. Call `search_buses` for Outbound and Return routes.
-2. Use Tavily to check operator reviews, punctuality, and hygiene if needed.
-3. Present the complete round-trip plan clearly:
-   - Specific Boarding Point details (near {boarding_area}).
-   - Outbound and Return bus options with ground transit notes for {drop_area}, explicitly including the Google Maps link provided by the tool.
-   - Total estimated fare: You MUST multiply the per-person fare by {travelers} travelers and display the grand total prominently.
-   - Bus types and amenities matching the {budget} budget tier.
+EXECUTION PROTOCOL & BOARDING RESOLUTION (CRITICAL):
+1. Call `search_buses` for Outbound and Return routes. 
+2. The tool will return a list of "Actual Boarding Points" for each bus operator.
+3. You MUST compare the User's Requested Boarding Neighborhood ({boarding_area}) with the actual boarding points available. 
+4. If {boarding_area} is not exactly listed, you MUST use the Tavily tool to search the web (e.g., "Which is closest to {boarding_area} in {origin_city}: [Point A], [Point B], or [Point C]?") to determine the geographically closest boarding point.
+
+OUTPUT FORMAT:
+Present the complete round-trip plan clearly:
+- State the User's requested neighborhood and explicitly explain WHICH actual boarding point you selected for them and why (e.g., "Since IDPL is not a direct stop, I selected Kukatpally, which is just 10 mins away").
+- Outbound and Return bus options with drop-off locations and Google Maps links.
+- Total estimated fare: You MUST multiply the per-person fare by {travelers} travelers and display the grand total prominently.
 """
