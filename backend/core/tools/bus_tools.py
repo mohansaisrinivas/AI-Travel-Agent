@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -48,16 +49,31 @@ def search_buses(origin: str, destination: str, date: str, boarding_area: str, b
     if apify_token:
         try:
             from apify_client import ApifyClient
+            
+            # Fix 1: Convert YYYY-MM-DD to DD/MM/YYYY for the RedBus scraper
+            try:
+                formatted_date = datetime.strptime(date.strip(), "%Y-%m-%d").strftime("%d/%m/%Y")
+            except ValueError:
+                formatted_date = date
+
             client = ApifyClient(apify_token)
             run = client.actor("rl1987/redbus-api-scraper").call(
                 run_input={
                     "source": origin,
                     "destination": destination,
-                    "dateOfJourney": date,
+                    "dateOfJourney": formatted_date,
                     "maxItems": 10
                 }
             )
-            dataset = client.dataset(run["defaultDatasetId"]).list_items().items
+            
+            # Fix 2: Safely extract dataset ID regardless of Apify SDK version
+            if isinstance(run, dict):
+                dataset_id = run.get("defaultDatasetId")
+            else:
+                dataset_id = getattr(run, "defaultDatasetId", getattr(run, "default_dataset_id", None))
+                
+            dataset = client.dataset(dataset_id).list_items().items
+            
             if dataset:
                 formatted_buses = []
                 for b in dataset[:4]:
