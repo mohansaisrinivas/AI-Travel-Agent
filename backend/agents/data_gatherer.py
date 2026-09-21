@@ -45,7 +45,7 @@ def run_data_gatherer(state: GraphState) -> dict:
     missing_fields = [k for k in USER_FACING_FIELDS if getattr(updated_trip_data, k) is None]
     
     # NEW LOGIC: Ask for the specific boarding neighborhood if traveling by bus
-    if updated_trip_data.transport_mode and updated_trip_data.transport_mode.lower() == "bus":
+    if updated_trip_data.transport_mode and updated_trip_data.transport_mode.lower() in ["bus","train"]:
         if not updated_trip_data.origin_boarding_area:
             missing_fields.append("origin_boarding_area (the specific neighborhood or landmark in your city where you want to board the bus)")
             
