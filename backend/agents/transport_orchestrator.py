@@ -6,7 +6,8 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from state.trip_state import GraphState
 from prompts.agent_prompts import TRANSPORT_ORCHESTRATOR_PROMPT
 from core.tools.airport_tools import resolve_multi_halt_airports
-from core.tools.bus_tools import resolve_bus_route  # <-- NEW
+from core.tools.bus_tools import resolve_bus_route
+from core.tools.train_tools import resolve_multi_halt_train_stations
 
 class TransportOrchestrationPlan(BaseModel):
     selected_agent: str = Field(description="'flight_agent', 'train_agent', 'bus_agent', or 'car_agent'")
@@ -41,12 +42,10 @@ def run_transport_orchestrator(state: GraphState) -> dict:
     # 1. Routing for FLIGHTS
     if mode == "flight" and trip_data.origin_city:
         halts = trip_data.halts or [trip_data.destination]
-        entry_halt = halts[0]
-        exit_halt = halts[-1]
-        trip_data.entry_halt = entry_halt
-        trip_data.exit_halt = exit_halt
+        trip_data.entry_halt = halts[0]
+        trip_data.exit_halt = halts[-1]
 
-        route_info = resolve_multi_halt_airports(trip_data.origin_city, entry_halt, exit_halt)
+        route_info = resolve_multi_halt_airports(trip_data.origin_city, trip_data.entry_halt, trip_data.exit_halt)
 
         trip_data.origin_iata = route_info.origin_iata
         trip_data.arrival_iata = route_info.arrival_iata
@@ -57,23 +56,44 @@ def run_transport_orchestrator(state: GraphState) -> dict:
         trip_data.return_last_mile_note = route_info.return_last_mile_note
         trip_data.is_direct_flight_available = route_info.is_direct_flight_available
 
-    # 2. Routing for BUSES (NEW)
-    if mode == "bus" and trip_data.origin_city:
+    # 2. Routing for BUSES
+    elif mode == "bus" and trip_data.origin_city:
         halts = trip_data.halts or [trip_data.destination]
-        entry_halt = halts[0]
-        exit_halt = halts[-1]
-        trip_data.entry_halt = entry_halt
-        trip_data.exit_halt = exit_halt
+        trip_data.entry_halt = halts[0]
+        trip_data.exit_halt = halts[-1]
 
-        print(f"   [Transport Orchestrator] Resolving bus hubs: Halt 1 ({entry_halt}) & Final Halt ({exit_halt})...")
+        print(f"   [Transport Orchestrator] Resolving bus hubs: Halt 1 ({trip_data.entry_halt}) & Final Halt ({trip_data.exit_halt})...")
         
-        out_route = resolve_bus_route(trip_data.origin_city, entry_halt)
+        out_route = resolve_bus_route(trip_data.origin_city, trip_data.entry_halt)
         trip_data.destination_drop_area = out_route.destination_drop_area
         trip_data.outbound_last_mile_note = out_route.last_mile_note
         
-        ret_route = resolve_bus_route(exit_halt, trip_data.origin_city)
+        ret_route = resolve_bus_route(trip_data.exit_halt, trip_data.origin_city)
         trip_data.return_last_mile_note = ret_route.last_mile_note
 
+    # 3. Routing for TRAINS (Fully Upgraded with Doorstep Micro-Routing)
+    elif mode == "train" and trip_data.origin_city:
+        halts = trip_data.halts or [trip_data.destination]
+        trip_data.entry_halt = halts[0]
+        trip_data.exit_halt = halts[-1]
+        
+        # STITCH THE DOORSTEP LOCATION TOGETHER: e.g., "IDPL, Hyderabad"
+        doorstep_origin = trip_data.origin_city
+        if trip_data.origin_boarding_area:
+            doorstep_origin = f"{trip_data.origin_boarding_area}, {trip_data.origin_city}"
+
+        print(f"   [Transport Orchestrator] Resolving train hubs for {doorstep_origin}...")
+        
+        route_info = resolve_multi_halt_train_stations(doorstep_origin, trip_data.entry_halt, trip_data.exit_halt)
+
+        # We reuse the flight IATA fields to pass the IRCTC station codes cleanly to the Train Agent
+        trip_data.origin_iata = route_info.origin_station_code
+        trip_data.arrival_iata = route_info.arrival_station_code
+        trip_data.outbound_last_mile_note = route_info.outbound_last_mile_note
+        trip_data.return_departure_iata = route_info.return_departure_station_code
+        trip_data.return_last_mile_note = route_info.return_last_mile_note
+
+    # Synthesize Context & Delegate to Specific Agent
     recent_messages = state["messages"][-4:]
     context_str = "\n".join([getattr(m, 'content', str(m)) for m in recent_messages if not str(m).startswith("SYSTEM_NOTE:")])
 
