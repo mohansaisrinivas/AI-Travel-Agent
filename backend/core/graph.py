@@ -1,3 +1,4 @@
+import time
 from langgraph.graph import StateGraph, END
 from state.trip_state import GraphState
 
@@ -8,9 +9,12 @@ from agents.transport_orchestrator import run_transport_orchestrator
 from agents.flight_agent import run_flight_agent
 from agents.bus_agent import run_bus_agent
 from agents.train_agent import run_train_agent
-from agents.hotel_agent import run_hotel_agent  # <-- NEW: Imported the Hotel Agent
+from agents.hotel_agent import run_hotel_agent
 
 def route_next_step(state: GraphState) -> str:
+    print("   [System] Pacing API to avoid Free Tier limits (4s breath)...")
+    time.sleep(2.0)  # Pause to respect the 15 RPM limit
+    
     last_msg = state["messages"][-1]
     content = getattr(last_msg, 'content', str(last_msg))
 
@@ -23,6 +27,9 @@ def route_next_step(state: GraphState) -> str:
     return END
 
 def route_commute(state: GraphState) -> str:
+    print("   [System] Pacing API to avoid Free Tier limits (4s breath)...")
+    time.sleep(2.0)  # Pause to respect the 15 RPM limit
+    
     last_msg = state["messages"][-1]
     content = getattr(last_msg, 'content', str(last_msg))
 
@@ -44,7 +51,7 @@ def build_travel_graph():
     workflow.add_node("flight_agent", run_flight_agent)
     workflow.add_node("train_agent", run_train_agent)
     workflow.add_node("bus_agent", run_bus_agent)
-    workflow.add_node("hotel_agent", run_hotel_agent) # <-- NEW: Hotel Agent Node
+    workflow.add_node("hotel_agent", run_hotel_agent)
 
     workflow.set_entry_point("orchestrator")
 
