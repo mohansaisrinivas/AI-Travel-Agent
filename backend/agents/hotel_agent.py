@@ -1,24 +1,16 @@
+from datetime import timedelta
+import dateutil.parser
 from typing import List, Literal
 from pydantic import BaseModel, Field
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from state.trip_state import GraphState
+from state.trip_state import GraphState, HaltAllocation
 from core.tools.hotel_tools import fetch_unified_accommodations
 from prompts.agent_prompts import HOTEL_EVALUATION_PROMPT
 
-# --- 1. Temporal Extraction Schemas ---
-class HaltDateAllocation(BaseModel):
-    halt_name: str = Field(description="The name of the halt/city.")
-    nights: int = Field(description="Exact number of nights spent at this halt based on the itinerary.")
-    check_in: str = Field(description="Check-in date in YYYY-MM-DD format.")
-    check_out: str = Field(description="Check-out date in YYYY-MM-DD format.")
-
-class ItineraryDateExtraction(BaseModel):
-    allocations: List[HaltDateAllocation] = Field(description="List of exact date allocations for each halt in chronological order.")
-
-# --- 2. LLM Output Schemas (Evaluation) ---
+# --- 1. Accommodation Schemas ---
 class HotelOption(BaseModel):
     property_name: str
     inventory_type: Literal["Hotel", "Resort", "Vacation Rental / Airbnb", "Homestay / Villa"]
@@ -41,7 +33,7 @@ class FinalTripAccommodations(BaseModel):
     halts_plan: List[HaltAccommodations]
     overall_accommodation_summary: str
 
-# --- 3. Markdown Renderer ---
+# --- 2. Markdown Renderer ---
 def render_hotel_markdown(data: FinalTripAccommodations, travelers: int) -> str:
     md = "Here are the optimal accommodation permutations based on your group size, budget, and exact itinerary schedule:\n\n"
     
@@ -75,85 +67,72 @@ def render_hotel_markdown(data: FinalTripAccommodations, travelers: int) -> str:
     md += f"> **Agent Summary:** {data.overall_accommodation_summary}"
     return md
 
-# --- 4. Main Agent Execution ---
+# --- 3. Main Agent Execution ---
+# Inside run_hotel_agent in backend/agents/hotel_agent.py:
+
 def run_hotel_agent(state: GraphState) -> dict:
-    print("🏨 Hotel Agent: Running Deterministic-Retrieval & Probabilistic-Evaluation Engine...")
-    
-    llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0)
     trip_data = state["trip_data"]
     
-    halts = trip_data.halts or [trip_data.destination]
+    # RECALL CHECK: Return cached hotels if already saved
+    last_msg = str(state["messages"][-1]).lower()
+    if trip_data.saved_hotel_details and not any(k in last_msg for k in ["change", "different", "pool", "villa", "resort"]):
+        print("🏨 Hotel Agent: Recalling saved hotel matrix from state memory...")
+        return {"messages": [trip_data.saved_hotel_details]}
+
+    print("🏨 Hotel Agent: Running Deterministic-Retrieval & Probabilistic-Evaluation Engine...")
+    llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0)
+    
     travelers = trip_data.number_of_travelers or 2
     budget = (trip_data.budget_tier or "standard").lower()
     start_date = trip_data.start_date or "TBD"
-    return_date = trip_data.return_date or "TBD"
 
-    # Fetch recent conversation context (to read the drafted itinerary)
-    recent_messages = "\n".join([getattr(m, 'content', str(m)) for m in state["messages"][-6:] if not str(m).startswith("SYSTEM_NOTE:")])
+    halt_schedules = []
+    curr_date = None
+    if start_date and start_date.upper() not in ["TBD", "NONE", ""]:
+        try:
+            curr_date = dateutil.parser.parse(start_date)
+        except Exception:
+            curr_date = None
 
-    # ------------------------------------------------------------------
-    # PHASE 1: TEMPORAL EXTRACTION
-    # ------------------------------------------------------------------
-    print("   [Hotel Agent] Reading drafted itinerary to extract exact check-in/check-out dates per halt...")
-    date_extractor = llm.with_structured_output(ItineraryDateExtraction)
-    
-    extraction_prompt = f"""
-    You are a Temporal Booking Assistant. 
-    Read the provided conversation/itinerary and determine EXACTLY how many nights the user spends at each of these Halts: {halts}.
-    
-    CRITICAL RULES:
-    1. Overall Start Date (Check-in Halt 1): {start_date}
-    2. Overall Return Date (Check-out Final Halt): {return_date}
-    3. The Check-out date of Halt 1 MUST be the exact Check-in date of Halt 2.
-    4. Calculate the dates using YYYY-MM-DD format. Do not guess evenly—read the itinerary text to see how the days were distributed!
-    """
+    halts_source = trip_data.halts if trip_data.halts else [HaltAllocation(halt_name=trip_data.destination or "Destination", nights=trip_data.duration_days or 3)]
 
-    try:
-        temporal_plan = date_extractor.invoke([
-            SystemMessage(content=extraction_prompt),
-            HumanMessage(content=f"Conversation Context:\n{recent_messages}")
-        ])
-        halt_schedules = temporal_plan.allocations
+    for h in halts_source:
+        h_name = h.halt_name if isinstance(h, HaltAllocation) else str(h)
+        h_nights = h.nights if isinstance(h, HaltAllocation) else 1
         
-        for alloc in halt_schedules:
-            print(f"      -> {alloc.halt_name}: {alloc.nights} Nights ({alloc.check_in} to {alloc.check_out})")
-            
-    except Exception as e:
-        print(f"   [Hotel Agent ERROR] Date extraction failed: {e}. Cannot proceed with booking.")
-        return {"messages": ["Sorry, I had trouble parsing the exact check-in dates from our itinerary plan. Let me try generating the plan again."]}
+        if curr_date:
+            c_in = curr_date.strftime("%Y-%m-%d")
+            curr_date += timedelta(days=h_nights)
+            c_out = curr_date.strftime("%Y-%m-%d")
+        else:
+            c_in = getattr(h, "check_in", "TBD") or "TBD"
+            c_out = getattr(h, "check_out", "TBD") or "TBD"
 
-    # ------------------------------------------------------------------
-    # PHASE 2: DETERMINISTIC RETRIEVAL
-    # ------------------------------------------------------------------
+        halt_schedules.append({
+            "halt_name": h_name,
+            "nights": h_nights,
+            "check_in": c_in,
+            "check_out": c_out
+        })
+
     all_candidates_context = ""
     for schedule in halt_schedules:
         raw_inventory = fetch_unified_accommodations(
-            halt_name=schedule.halt_name, 
-            check_in=schedule.check_in, 
-            check_out=schedule.check_out, 
+            halt_name=schedule["halt_name"], 
+            check_in=schedule["check_in"], 
+            check_out=schedule["check_out"], 
             adults=travelers, 
             budget_tier=budget
         )
-        
         inventory_str = "\n".join([c.json() for c in raw_inventory])
-        
         all_candidates_context += (
-            f"=== HALT: {schedule.halt_name} ===\n"
-            f"Check-in: {schedule.check_in} | Check-out: {schedule.check_out} ({schedule.nights} Nights)\n"
+            f"=== HALT: {schedule['halt_name']} ===\n"
+            f"Check-in: {schedule['check_in']} | Check-out: {schedule['check_out']} ({schedule['nights']} Nights)\n"
             f"AVAILABLE CANDIDATES:\n{inventory_str}\n\n"
         )
 
-    # ------------------------------------------------------------------
-    # PHASE 3: PROBABILISTIC EVALUATION (LLM Matrix)
-    # ------------------------------------------------------------------
-    print("   [Hotel Agent] Normalization complete. Passing payload to LLM Permutation Matrix...")
     structured_evaluator = llm.with_structured_output(FinalTripAccommodations)
-    
-    system_prompt = HOTEL_EVALUATION_PROMPT.format(
-        budget=budget, 
-        travelers=travelers, 
-        notes=trip_data.special_transport_notes or "None"
-    )
+    system_prompt = HOTEL_EVALUATION_PROMPT.format(budget=budget, travelers=travelers, notes=trip_data.special_transport_notes or "None")
 
     evaluation_result = structured_evaluator.invoke([
         SystemMessage(content=system_prompt),
@@ -161,5 +140,9 @@ def run_hotel_agent(state: GraphState) -> dict:
     ])
     
     final_markdown = render_hotel_markdown(evaluation_result, travelers)
+    updated_trip_data = trip_data.model_copy(update={"saved_hotel_details": final_markdown})
 
-    return {"messages": [final_markdown]}
+    return {
+        "messages": [final_markdown],
+        "trip_data": updated_trip_data
+    }

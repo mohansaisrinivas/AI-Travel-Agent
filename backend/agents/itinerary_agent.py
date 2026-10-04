@@ -1,75 +1,85 @@
 import os
 import re
-from typing import Optional
-from pydantic import BaseModel, Field
-
+import json
+import ast
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langchain_tavily import TavilySearch 
 
-from state.trip_state import GraphState
+from state.trip_state import GraphState, HaltAllocation
 from prompts.agent_prompts import ITINERARY_AGENT_PROMPT
 
-class DestDurationExtraction(BaseModel):
-    destination: Optional[str] = Field(default="Not Specified", description="The destination mentioned by the user.")
-    duration_days: Optional[int] = Field(default=3, description="The number of days for the trip. Default is 3 if not mentioned.")
-
-def format_chat_history_for_itinerary(messages: list) -> str:
-    script = ""
-    for msg in messages:
-        if not isinstance(msg, str):
-            msg = getattr(msg, 'content', str(msg))
-        if msg.startswith("SYSTEM_NOTE:"):
-            continue
-        elif "I'd be delighted" in msg or "Here is your draft" in msg or "Perfect" in msg or "Agent:" in msg:
-            script += f"Agent: {msg}\n"
-        else:
-            script += f"User: {msg}\n"
-    return script
-
 def run_itinerary_agent(state: GraphState) -> dict:
-    print("🗺️ Itinerary Agent is working (ReAct Mode)...")
-    
+    trip_data = state["trip_data"]
+
+    # RECALL CHECK: If itinerary is already saved and user isn't asking to change destinations, return cached version!
+    last_msg = str(state["messages"][-1]).lower()
+    if trip_data.saved_itinerary and not any(k in last_msg for k in ["change", "instead", "modify", "add", "kerala", "goa"]):
+        print("🗺️ Itinerary Agent: Recalling saved itinerary from state memory (Zero LLM / Search Cost)...")
+        return {"messages": [trip_data.saved_itinerary]}
+
+    print("🗺️ Itinerary Agent is working (Direct Binding Mode)...")
     llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", temperature=0)
-    full_context = format_chat_history_for_itinerary(state["messages"])
     
-    extractor = llm.with_structured_output(DestDurationExtraction)
-    extraction = extractor.invoke([
-        SystemMessage(content="Extract destination and duration from the user's request. Default to 3 days if not specified."),
-        HumanMessage(content=full_context)
-    ])
+    duration = trip_data.duration_days or 3
+    dest = trip_data.destination or "the requested destination"
     
-    updated_trip_data = state["trip_data"]
-    if extraction.destination and extraction.destination != "Not Specified":
-        updated_trip_data.destination = extraction.destination
-    if extraction.duration_days:
-        updated_trip_data.duration_days = extraction.duration_days
+    context = f"Chat Summary: {state.get('chat_summary', '')}\n\nRecent Interactions:\n"
+    context += "\n".join([str(m) for m in state["messages"][-4:] if not str(m).startswith("SYSTEM_NOTE:")])
 
     tools = []
     if os.getenv("TAVILY_API_KEY"):
         tools.append(TavilySearch(max_results=3))
 
-    print("   [Itinerary Agent] Researching and drafting halt-wise plan... (This may take a few seconds)")
+    llm_with_tools = llm.bind_tools(tools)
     
-    react_agent = create_react_agent(llm, tools, prompt=ITINERARY_AGENT_PROMPT)
-    react_state = react_agent.invoke({
-        "messages": [HumanMessage(content=f"Plan a trip based on this context:\n\n{full_context}")]
-    })
+    instructions = f"Draft a {duration}-day itinerary for {dest} based on this context:\n{context}"
+    messages_for_llm = [SystemMessage(content=ITINERARY_AGENT_PROMPT), HumanMessage(content=instructions)]
     
-    raw_content = react_state["messages"][-1].content
+    tool_call_msg = llm_with_tools.invoke(messages_for_llm)
+    
+    if tool_call_msg.tool_calls:
+        messages_for_llm.append(tool_call_msg)
+        for tc in tool_call_msg.tool_calls:
+            tool_instance = next((t for t in tools if t.name == tc["name"]), None)
+            if tool_instance:
+                try:
+                    result = tool_instance.invoke(tc["args"])
+                except Exception as e:
+                    result = f"Error: {e}"
+                messages_for_llm.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+        
+        final_msg = llm.invoke(messages_for_llm)
+        raw_content = final_msg.content
+    else:
+        raw_content = tool_call_msg.content
+
     if isinstance(raw_content, list):
         final_response = " ".join([item.get("text", "") if isinstance(item, dict) else str(item) for item in raw_content])
     else:
         final_response = str(raw_content)
 
-    halts_match = re.search(r"EXTRACTED_HALTS:\s*\[(.*?)\]", final_response)
+    halts_match = re.search(r"EXTRACTED_HALTS:\s*(\[.*?\])", final_response, re.DOTALL)
+    parsed_allocations = []
     if halts_match:
-        halts_str = halts_match.group(1)
-        halts_list = [h.strip().strip("'\"") for h in halts_str.split(",") if h.strip()]
-        updated_trip_data.halts = halts_list
-        print(f"   [Itinerary Agent] Saved Halts to Memory -> {halts_list}")
-        final_response = re.sub(r"EXTRACTED_HALTS:\s*\[.*?\]", "", final_response).strip()
+        raw_halts_str = halts_match.group(1).strip()
+        try:
+            data = json.loads(raw_halts_str)
+            for item in data:
+                if isinstance(item, dict):
+                    parsed_allocations.append(HaltAllocation(
+                        halt_name=item.get("halt_name", item.get("name", "Halt")),
+                        nights=int(item.get("nights", 1))
+                    ))
+        except Exception:
+            pass
+
+    updated_trip_data = trip_data.model_copy(update={
+        "halts": parsed_allocations if parsed_allocations else trip_data.halts,
+        "saved_itinerary": final_response
+    })
+
+    final_response = re.sub(r"EXTRACTED_HALTS:\s*\[.*?\]", "", final_response, flags=re.DOTALL).strip()
 
     return {
         "messages": [final_response],

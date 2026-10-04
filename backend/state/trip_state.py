@@ -2,6 +2,12 @@ from typing import TypedDict, Optional, List, Annotated
 from pydantic import BaseModel, Field
 import operator
 
+class HaltAllocation(BaseModel):
+    halt_name: str = Field(description="Name of the city or town.")
+    nights: int = Field(default=1, description="Number of nights allocated to this halt.")
+    check_in: Optional[str] = Field(default=None, description="Check-in date (YYYY-MM-DD).")
+    check_out: Optional[str] = Field(default=None, description="Check-out date (YYYY-MM-DD).")
+
 class TripDetails(BaseModel):
     """The master checklist of information needed to finalize a trip."""
     
@@ -15,13 +21,14 @@ class TripDetails(BaseModel):
     transport_mode: Optional[str] = Field(default=None, description="How the user travels FROM origin TO destination ('flight', 'train', 'bus', or 'car').")
     needs_airport_cab: Optional[bool] = Field(default=None, description="Does the user need a cab to the origin airport/station?")
     needs_local_rental: Optional[bool] = Field(default=None, description="Does the user need a vehicle rental locally at the destination?")
-    halts: List[str] = Field(default_factory=list, description="List of base cities/towns planned for the trip.")
+    
+    halts: List[HaltAllocation] = Field(default_factory=list, description="List of base cities with night allocations.")
 
     # --- Halt-Aware Airport Routing ---
     entry_halt: Optional[str] = Field(default=None, description="The first halt where the trip begins.")
     exit_halt: Optional[str] = Field(default=None, description="The final halt where the trip concludes.")
-    origin_iata: Optional[str] = Field(default=None, description="Departure airport IATA code from origin city (e.g., HYD).")
-    arrival_iata: Optional[str] = Field(default=None, description="Arrival airport IATA code closest to Halt 1 (e.g., COK).")
+    origin_iata: Optional[str] = Field(default=None, description="Departure airport IATA code from origin city.")
+    arrival_iata: Optional[str] = Field(default=None, description="Arrival airport IATA code closest to Halt 1.")
     arrival_airport_name: Optional[str] = Field(default=None, description="Name of the airport closest to Halt 1.")
     return_departure_iata: Optional[str] = Field(default=None, description="Departure airport IATA code closest to the final halt.")
     return_departure_airport_name: Optional[str] = Field(default=None, description="Name of the airport closest to the final halt.")
@@ -34,8 +41,26 @@ class TripDetails(BaseModel):
     origin_boarding_area: Optional[str] = Field(default=None, description="Exact neighborhood/area in origin city for bus boarding.")
     destination_drop_area: Optional[str] = Field(default=None, description="Nearest bus terminus/junction to destination if no direct route exists.")
 
+    # --- Cached Artifacts (Prevents Re-running Searches) ---
+    saved_itinerary: Optional[str] = Field(default=None, description="Cached text of the generated itinerary.")
+    saved_transport_details: Optional[str] = Field(default=None, description="Cached text of the transport booking options.")
+    saved_hotel_details: Optional[str] = Field(default=None, description="Cached text of the hotel permutation matrix.")
+
+def merge_trip_data(existing: TripDetails, update: TripDetails) -> TripDetails:
+    if not existing:
+        return update
+    if not update:
+        return existing
+    
+    existing_dict = existing.dict(exclude_none=True)
+    update_dict = update.dict(exclude_none=True)
+    merged_dict = {**existing_dict, **update_dict}
+    return TripDetails(**merged_dict)
+
 class GraphState(TypedDict):
     messages: Annotated[List[str], operator.add]
-    trip_data: TripDetails
+    chat_summary: str
+    trip_data: Annotated[TripDetails, merge_trip_data]
     itinerary_drafted: bool
     itinerary_approved: bool
+    booking_stage: Optional[str]

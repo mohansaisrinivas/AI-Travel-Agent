@@ -1,15 +1,26 @@
-# Ignore the file containing your API key (CRITICAL)
-.env
-
-# Ignore Python cache files
+# --- Python Virtual Environment ---
+venv/
+env/
+ENV/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Ignore Virtual Environments (if you decide to use one later)
-venv/
-.venv/
-env/
+# --- Environment Variables (CRITICAL for security) ---
+.env
 
-# Ignore Operating System clutter
+# --- Local Databases (SQLite Checkpoints & Users) ---
+*.sqlite
+*.db
+*.sqlite3
+travel_checkpoints.sqlite
+users.db
+
+# --- IDE & Editor Settings ---
+.vscode/
+.idea/
+
+# --- Operating System Junk ---
 .DS_Store
 Thumbs.db

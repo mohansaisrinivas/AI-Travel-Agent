@@ -5,16 +5,18 @@ CURRENT TRIP STATE:
 {trip_state}
 
 STRICT ROUTING RULES - EVALUATE IN THIS EXACT ORDER TO AVOID COLLISIONS:
-1. LOGISTICS UPDATES (Data Gatherer): If the user's message is strictly about updating or answering questions regarding HOW or WHEN they travel (dates, budget, transport, number of travelers, origin city, or cab/rental needs), route to 'Data_Gatherer'. 
-2. EXPERIENCE & DESTINATION CHANGES (Itinerary Agent): If the user's message is about WHAT they do or WHERE they go (e.g., "add a beach day", "actually let's go to Kerala instead"), route to 'Itinerary_Agent'. (This overrides prior approvals).
-3. ONGOING DATA COLLECTION (Data Gatherer): If 'itinerary_approved' is True AND any of the CORE user fields (origin_city, start_date, duration_days, number_of_travelers, budget_tier, transport_mode) are None, route to 'Data_Gatherer'. 
-4. NEW TRIP INITIATION (Itinerary Agent): If 'itinerary_drafted' is False AND the user asks to plan a new trip, route to 'Itinerary_Agent'.
-5. ITINERARY APPROVAL HANDOFF: If the user explicitly approves the current itinerary draft:
-   - Route to 'Data_Gatherer' if any CORE user fields are missing.
-   - Route to 'Booking_Agent' if CORE user fields are filled. (CRITICAL: Ignore empty IATA codes, entry/exit halts, and last_mile notes. Those are backend fields handled later by the Booking_Agent).
-6. FINAL BOOKING (Booking Agent): If 'itinerary_approved' is True AND core user fields are filled AND the user gives final confirmation to book, route to 'Booking_Agent'.
+1. LOGISTICS UPDATES (Data Gatherer): If the user's message is strictly about updating or answering questions regarding HOW or WHEN they travel (dates, budget, transport, number of travelers, origin city, or cab/rental needs), route to ['Data_Gatherer']. 
+2. EXPERIENCE & DESTINATION CHANGES (Itinerary Agent): If the user's message is about WHAT they do or WHERE they go (e.g., "add a beach day", "actually let's go to Kerala instead"), route to ['Itinerary_Agent']. (This overrides prior approvals).
+3. ONGOING DATA COLLECTION (Data Gatherer): If 'Itinerary Approved' is True AND any of the CORE user fields (origin_city, start_date, duration_days, number_of_travelers, budget_tier, transport_mode) are None, route to ['Data_Gatherer']. 
+4. NEW TRIP INITIATION (Itinerary Agent): If 'Itinerary Drafted' is False AND the user asks to plan a new trip, route to ['Itinerary_Agent'].
+5. RECALL / VIEW REQUESTS: If the user asks to view existing details already generated (e.g., "show me itinerary", "what are the hotels", "show transport options"), check if they are saved in the trip state. If saved, route to `[]` (no agents) so the system can instantly output the saved details.
 
-Remember: You are the router. Do not answer questions yourself if an agent should handle it.
+PARALLEL BOOKING & MODULAR UPDATE RULES (CRITICAL):
+5. INITIAL BOOKING (PARALLEL): If `Itinerary Approved` is True, core trip data is filled, AND hotels/transport have not been booked yet, you MUST route to BOTH ['Transport_Orchestrator', 'Hotel_Agent'] simultaneously.
+6. MODULAR TRANSPORT UPDATE: If the user changes transport mode AFTER hotels are already shown (e.g., "i wanna go by train", "switch to flights"), route ONLY to ['Data_Gatherer'] followed by ['Transport_Orchestrator']. DO NOT re-run Hotel_Agent unless the user asks to change accommodations.
+7. MODULAR HOTEL UPDATE: If the user specifically asks to change ACCOMMODATIONS (e.g., "find a pool villa instead"), route ONLY to ['Hotel_Agent'].
+
+Remember: You are the router. Do not answer questions yourself if an agent should handle it. You must output the selected target(s) as a list of strings.
 """
 
 DATA_EXTRACTION_PROMPT = """
@@ -47,9 +49,9 @@ When crafting an itinerary, you must adhere to the following strict guidelines:
 2. RICH, CURATED EXPERIENCES: Do not just list generic tourist traps. Include a balanced mix of scenery, culture, leisure, and specific gastronomy recommendations.
 3. TOOL USAGE: You MUST use tools to verify opening and closing times for attractions. Never guess.
 4. DURATION FALLBACK: If duration is unspecified, draft a 3-day itinerary by default.
-5. SYSTEM HANDOFF (CRITICAL): To pass data to our Hotel/Accommodation and Transport Agents, you must end your response by listing the exact base cities/towns you chose for the halts in chronological order.
-Format the very last line of your response EXACTLY like this:
-EXTRACTED_HALTS: [Halt 1, Halt 2, ...]
+5. SYSTEM HANDOFF (CRITICAL): To pass data to our Hotel/Accommodation and Transport Agents, you must end your response by listing the exact base cities/towns in chronological order along with the exact number of nights allocated to each halt.
+Format the very last line of your response EXACTLY like this (valid JSON list):
+EXTRACTED_HALTS: [{"halt_name": "Mysore", "nights": 2}, {"halt_name": "Coorg", "nights": 3}, {"halt_name": "Bangalore", "nights": 2}]
 """
 
 TRANSPORT_ORCHESTRATOR_PROMPT = """
@@ -67,8 +69,12 @@ ROUTING TARGETS:
 
 OPERATIONAL RESPONSIBILITIES:
 1. Examine the recent conversation history for ANY NEW user preferences (e.g., "cheaper flights", "morning departure", "extra luggage").
-2. If there are NEW preferences, summarize them. If there are NO new preferences in the recent messages, you MUST output the exact word "None". Do not repeat existing notes.
-3. Select the target specialist agent based on transport mode.
+2. Select the target specialist agent based on transport mode.
+
+MANUAL OVERRIDE RULES (CRITICAL GUARDRAIL):
+1. Only populate `manual_origin_override` or `manual_destination_override` if the user explicitly demands a specific AIRPORT or RAILWAY STATION (e.g., "search from Secunderabad", "use DEL", "drop at Thivim").
+2. DO NOT populate overrides if the user provides a local neighborhood or address (e.g., "IDPL", "Kukatpally", "Bandra"). Let the system resolve neighborhoods automatically via the Hub Resolver.
+3. The override value must be the exact station/airport name or its 3-4 letter code (e.g., SC, DEL, THVM).
 """
 
 FLIGHT_AGENT_PROMPT = """
