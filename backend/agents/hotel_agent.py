@@ -74,8 +74,10 @@ def run_hotel_agent(state: GraphState) -> dict:
     trip_data = state["trip_data"]
     
     # RECALL CHECK: Return cached hotels if already saved
-    last_msg = str(state["messages"][-1]).lower()
-    if trip_data.saved_hotel_details and not any(k in last_msg for k in ["change", "different", "pool", "villa", "resort"]):
+    user_msgs = [m for m in state["messages"] if not str(m).startswith("SYSTEM_NOTE:")]
+    last_msg = getattr(user_msgs[-1], 'content', str(user_msgs[-1])).lower() if user_msgs else ""
+    
+    if trip_data.saved_hotel_details and not any(k in last_msg for k in ["change", "different", "pool", "villa", "resort", "modify", "instead", "alternative"]):
         print("🏨 Hotel Agent: Recalling saved hotel matrix from state memory...")
         return {"messages": [trip_data.saved_hotel_details]}
 
@@ -132,7 +134,12 @@ def run_hotel_agent(state: GraphState) -> dict:
         )
 
     structured_evaluator = llm.with_structured_output(FinalTripAccommodations)
-    system_prompt = HOTEL_EVALUATION_PROMPT.format(budget=budget, travelers=travelers, notes=trip_data.special_transport_notes or "None")
+    system_prompt = HOTEL_EVALUATION_PROMPT.format(
+        current_draft=trip_data.saved_hotel_details or "No previous draft exists.",
+        budget=budget, 
+        travelers=travelers, 
+        notes=trip_data.special_transport_notes or "None"
+    )
 
     evaluation_result = structured_evaluator.invoke([
         SystemMessage(content=system_prompt),

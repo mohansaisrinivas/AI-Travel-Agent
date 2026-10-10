@@ -11,8 +11,10 @@ def run_flight_agent(state: GraphState) -> dict:
     trip_data = state["trip_data"]
 
     # RECALL CHECK: If transport details are already saved and user isn't modifying the route, return cached version!
-    last_msg = str(state["messages"][-1]).lower()
-    if trip_data.saved_transport_details and not any(k in last_msg for k in ["switch", "train", "bus", "change", "instead"]):
+    user_msgs = [m for m in state["messages"] if not str(m).startswith("SYSTEM_NOTE:")]
+    last_msg = getattr(user_msgs[-1], 'content', str(user_msgs[-1])).lower() if user_msgs else ""
+    
+    if trip_data.saved_transport_details and not any(k in last_msg for k in ["switch", "train", "bus", "change", "instead", "modify", "different", "alternative"]):
         print("✈️ Flight Agent: Recalling saved flight schedule from state memory (Zero LLM / Scraper Cost)...")
         return {"messages": [trip_data.saved_transport_details]}
 
@@ -42,6 +44,7 @@ def run_flight_agent(state: GraphState) -> dict:
         tools.append(TavilySearch(max_results=3))
 
     system_prompt = FLIGHT_AGENT_PROMPT.format(
+        current_draft=trip_data.saved_transport_details or "No previous draft exists.",
         start_date=start_date, return_date=return_date, origin_city=origin_city, 
         origin_iata=origin_iata, arrival_iata=arrival_iata, arrival_airport=arrival_airport,
         return_departure_iata=return_departure_iata, return_airport=return_airport,

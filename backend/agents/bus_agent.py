@@ -11,8 +11,12 @@ def run_bus_agent(state: GraphState) -> dict:
     trip_data = state["trip_data"]
 
     # RECALL CHECK: If transport details are already saved and user isn't modifying the route, return cached version!
-    last_msg = str(state["messages"][-1]).lower()
-    if trip_data.saved_transport_details and not any(k in last_msg for k in ["switch", "flight", "train", "change", "instead"]):
+    # FIX: Filter out SYSTEM_NOTEs to grab the actual last user message
+    user_msgs = [m for m in state["messages"] if not str(m).startswith("SYSTEM_NOTE:")]
+    last_msg = getattr(user_msgs[-1], 'content', str(user_msgs[-1])).lower() if user_msgs else ""
+    
+    # FIX: Expanded keywords to catch modifications and transport switches 
+    if trip_data.saved_transport_details and not any(k in last_msg for k in ["switch", "flight", "train", "change", "instead", "modify", "different", "alternative", "cheaper", "another"]):
         print("🚌 Bus Agent: Recalling saved bus schedule from state memory (Zero LLM / Scraper Cost)...")
         return {"messages": [trip_data.saved_transport_details]}
 
@@ -39,6 +43,7 @@ def run_bus_agent(state: GraphState) -> dict:
         tools.append(TavilySearch(max_results=3))
 
     system_prompt = BUS_AGENT_PROMPT.format(
+        current_draft=trip_data.saved_transport_details or "No previous draft exists.",
         start_date=start_date, return_date=return_date, origin_city=origin_city, 
         boarding_area=boarding_area, drop_area=drop_area, entry_halt=entry_halt, 
         exit_halt=exit_halt, outbound_last_mile=outbound_last_mile, 

@@ -147,34 +147,9 @@ def chat_endpoint(request: ChatRequest):
             })
             current_state = travel_graph.get_state(config)
 
-        # --- INSTANT ARTIFACT RECALL INTERCEPTION ---
-        # Check if the user is asking to view saved details directly in FastAPI
-        user_msg_lower = request.message.lower()
-        trip_data = current_state.values.get("trip_data")
-        
-        if trip_data:
-            # Handle both Pydantic model objects and plain dictionaries safely
-            if hasattr(trip_data, 'dict'):
-                td_dict = trip_data.dict()
-            else:
-                td_dict = trip_data or {}
-
-            if any(k in user_msg_lower for k in ["itinerary", "plan", "schedule"]) and td_dict.get("saved_itinerary"):
-                print("📋 [API] Intercepted view request: Serving cached itinerary.")
-                return ChatResponse(status="success", reply=td_dict["saved_itinerary"])
-            
-            if any(k in user_msg_lower for k in ["transport", "flight", "train", "bus"]) and td_dict.get("saved_transport_details"):
-                print("🚆 [API] Intercepted view request: Serving cached transport details.")
-                return ChatResponse(status="success", reply=td_dict["saved_transport_details"])
-
-            if any(k in user_msg_lower for k in ["hotel", "stay", "accommodation"]) and td_dict.get("saved_hotel_details"):
-                print("🏨 [API] Intercepted view request: Serving cached hotel details.")
-                return ChatResponse(status="success", reply=td_dict["saved_hotel_details"])
-        # ---------------------------------------------
-
         previous_msg_count = len(current_state.values.get("messages", []))
 
-        # Invoke the graph workflow for normal conversation/agents
+        # The message goes directly to the Graph for the LLM to process
         result_state = travel_graph.invoke({"messages": [request.message]}, config=config)
         
         all_messages = result_state.get("messages", [])
@@ -182,7 +157,11 @@ def chat_endpoint(request: ChatRequest):
         
         valid_replies = []
         for msg in new_messages:
+            if getattr(msg, 'type', '') == 'human':
+                continue
             content = getattr(msg, 'content', str(msg))
+            if content == request.message:
+                continue
             if content and not content.startswith("SYSTEM_NOTE:"):
                 valid_replies.append(content)
 
